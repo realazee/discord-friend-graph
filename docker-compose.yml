@@ -1,0 +1,12 @@
+services:
+  friendlist:
+    build: .
+    container_name: friendlist
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - PORT=3001
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_HOURS=24
+    volumes:
+      - ./users.json:/app/users.json

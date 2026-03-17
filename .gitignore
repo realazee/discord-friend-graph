@@ -1,0 +1,6 @@
+node_modules/
+.env
+users.json
+public/graph.html
+*.log
+.DS_Store
