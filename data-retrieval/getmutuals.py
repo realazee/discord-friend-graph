@@ -5,29 +5,45 @@ Edited by https://github.com/realazee
 import json
 import random
 import asyncio
-from playwright.async_api import async_playwright
+import aiohttp
 
 user_token = ""
 
+DISCORD_API = "https://discord.com/api/v9"
 
-async def get_all_friends(page):
-    result = await page.evaluate("""async (token) => {
-        try {
-            const resp = await fetch("https://discord.com/api/v9/users/@me/relationships", {
-                headers: { "Authorization": token }
-            });
-            if (!resp.ok) return { error: resp.status + " " + (await resp.text()) };
-            return { data: await resp.json() };
-        } catch(e) {
-            return { error: e.message };
-        }
-    }""", user_token)
 
-    if "error" in result:
-        raise Exception(result["error"])
+async def fetch_super_properties(session):
+    """Fetch super properties from cordapi. Returns the encoded header and user agent."""
+    async with session.post("https://cordapi.dolfi.es/api/v2/properties/web") as resp:
+        data = await resp.json()
+
+    props = data["properties"]
+    encoded = data["encoded"]
+    user_agent = props["browser_user_agent"]
+
+    print(f"Super properties loaded (build {props['client_build_number']})")
+    return encoded, user_agent
+
+
+def build_headers(super_props, user_agent):
+    """Build the standard headers for Discord API requests."""
+    return {
+        "Authorization": user_token,
+        "User-Agent": user_agent,
+        "X-Super-Properties": super_props,
+        "X-Discord-Locale": "en-US",
+        "X-Discord-Timezone": "America/New_York",
+    }
+
+
+async def get_all_friends(session, headers):
+    async with session.get(f"{DISCORD_API}/users/@me/relationships", headers=headers) as resp:
+        if resp.status != 200:
+            raise Exception(f"{resp.status} {await resp.text()}")
+        data = await resp.json()
 
     friends = {}
-    for friend in result["data"]:
+    for friend in data:
         friends[friend["id"]] = {
             "id": friend["id"],
             "username": friend.get("user", {}).get("username"),
@@ -38,38 +54,28 @@ async def get_all_friends(page):
     return friends
 
 
-async def get_mutuals(page, user_id):
-    result = await page.evaluate("""async ({token, userId}) => {
-        try {
-            const resp = await fetch(
-                `https://discord.com/api/v9/users/${userId}/profile?type=popout&with_mutual_friends=true&with_mutual_friends_count=false`,
-                { headers: { "Authorization": token } }
-            );
-            if (!resp.ok) return { error: resp.status + " " + (await resp.text()) };
-            return { data: await resp.json() };
-        } catch(e) {
-            return { error: e.message };
-        }
-    }""", {"token": user_token, "userId": user_id})
+async def get_mutuals(session, user_id, headers):
+    url = f"{DISCORD_API}/users/{user_id}/profile"
+    params = {
+        "type": "popout",
+        "with_mutual_friends": "true",
+        "with_mutual_friends_count": "false",
+    }
+    async with session.get(url, headers=headers, params=params) as resp:
+        if resp.status != 200:
+            raise Exception(f"{resp.status} {await resp.text()}")
+        data = await resp.json()
 
-    if "error" in result:
-        raise Exception(result["error"])
-
-    return [m["id"] for m in result["data"].get("mutual_friends", [])]
+    return [m["id"] for m in data.get("mutual_friends", [])]
 
 
 async def main():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        page = await browser.new_page()
+    async with aiohttp.ClientSession() as session:
+        super_props, user_agent = await fetch_super_properties(session)
+        headers = build_headers(super_props, user_agent)
 
-
-        print("Navigating to Discord to pass Cloudflare...")
-        await page.goto("https://discord.com/login", wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(5000)
-        print("Ready!\n")
-
-        friends = await get_all_friends(page)
+        print("Fetching friends list...")
+        friends = await get_all_friends(session, headers)
         total = len(friends)
         print(f"Total friends: {total}\n")
 
@@ -80,7 +86,7 @@ async def main():
 
             while True:
                 try:
-                    mutuals = await get_mutuals(page, friend_id)
+                    mutuals = await get_mutuals(session, friend_id, headers)
                     friends[friend_id]["mutual_friends"] = mutuals
                     break
                 except Exception as e:
@@ -102,7 +108,6 @@ async def main():
                 f.write(json.dumps(friends, indent=4))
 
         print("\nDone! Results saved to mutuals_output.json")
-        await browser.close()
 
 
 asyncio.run(main())
