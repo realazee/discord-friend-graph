@@ -6,8 +6,14 @@ import json
 import random
 import asyncio
 import aiohttp
+import os
+from dotenv import load_dotenv
 
-user_token = ""
+load_dotenv()
+user_token = os.getenv("USER_TOKEN", "")
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_FILE = os.path.join(SCRIPT_DIR, "mutuals_output.json")
 
 DISCORD_API = "https://discord.com/api/v9"
 
@@ -75,14 +81,39 @@ async def main():
         headers = build_headers(super_props, user_agent)
 
         print("Fetching friends list...")
-        friends = await get_all_friends(session, headers)
+        current_friends = await get_all_friends(session, headers)
+        
+        # Load existing data
+        try:
+            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+                friends = json.load(f)
+                print(f"Loaded existing data with {len(friends)} records.")
+        except (FileNotFoundError, json.JSONDecodeError):
+            friends = {}
+
+        # Merge current_friends into friends
+        for friend_id, friend_data in current_friends.items():
+            if friend_id not in friends:
+                friends[friend_id] = friend_data
+            else:
+                # Update basic info but keep mutual_friends if it exists
+                for k, v in friend_data.items():
+                    if k != "mutual_friends":
+                        friends[friend_id][k] = v
+
         total = len(friends)
         print(f"Total friends: {total}\n")
 
         i = 0
         for friend_id, friend_data in friends.items():
             i += 1
-            print(f"{i} / {total} - Getting mutuals for: {friend_data['username']}")
+            
+            # Skip if we already have their mutual friends
+            if "mutual_friends" in friend_data:
+                print(f"{i} / {total} - Skipping (already got mutuals for: {friend_data.get('username')})")
+                continue
+
+            print(f"{i} / {total} - Getting mutuals for: {friend_data.get('username')}")
 
             while True:
                 try:
@@ -104,10 +135,10 @@ async def main():
             delay = random.uniform(0.5, 2)
             await asyncio.sleep(delay)
 
-            with open("mutuals_output.json", "w", encoding="utf-8") as f:
+            with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
                 f.write(json.dumps(friends, indent=4))
 
-        print("\nDone! Results saved to mutuals_output.json")
+        print(f"\nDone! Results saved to {OUTPUT_FILE}")
 
 
 asyncio.run(main())

@@ -5,3 +5,5 @@ public/graph.html
 *.log
 .DS_Store
 test-x-super-properties.py
+mutuals_output.json
+graph.html

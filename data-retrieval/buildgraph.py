@@ -1,8 +1,12 @@
 import json
 import networkx as nx
 import math
+import os
 
-with open("mutuals_output.json", "r") as f:
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+INPUT_FILE = os.path.join(SCRIPT_DIR, "mutuals_output.json")
+
+with open(INPUT_FILE, "r") as f:
     raw = json.load(f)
 
 G = nx.Graph()
